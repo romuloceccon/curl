@@ -20,37 +20,112 @@
  *
  ***************************************************************************/
 #include "test.h"
-
+#include "testutil.h"
+#include "warnless.h"
 #include "memdebug.h"
+
+#define TEST_HANG_TIMEOUT 60 * 1000
+
+int debug_callback(CURL *curl, curl_infotype info, char *msg, size_t len, void *ptr)
+{
+  if (info == CURLINFO_TEXT)
+    fprintf(stderr, "debug: %.*s", (int) len, msg);
+
+  return 0;
+}
+
+int do_one_request(CURLM *m, char *URL, char *resolve)
+{
+  CURL *curls;
+  struct curl_slist *resolve_list = NULL;
+  int still_running;
+  int res = 0;
+  CURLMsg *msg;
+  int msgs_left;
+  
+  resolve_list = curl_slist_append(resolve_list, resolve);
+  
+  easy_init(curls);
+  
+  easy_setopt(curls, CURLOPT_URL, URL);
+  easy_setopt(curls, CURLOPT_RESOLVE, resolve_list);
+  easy_setopt(curls, CURLOPT_DEBUGFUNCTION, debug_callback);
+  easy_setopt(curls, CURLOPT_VERBOSE, 1);
+  easy_setopt(curls, CURLOPT_DNS_CACHE_TIMEOUT, 1);
+  
+  multi_add_handle(m, curls);
+  multi_perform(m, &still_running);
+  
+  abort_on_test_timeout();
+
+  while (still_running)
+  {
+    struct timeval timeout;
+    fd_set fdread, fdwrite, fdexcep;
+    int maxfd = -99;
+
+    FD_ZERO(&fdread);
+    FD_ZERO(&fdwrite);
+    FD_ZERO(&fdexcep);
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    multi_fdset(m, &fdread, &fdwrite, &fdexcep, &maxfd);
+    select_test(maxfd+1, &fdread, &fdwrite, &fdexcep, &timeout);
+
+    abort_on_test_timeout();
+    multi_perform(m, &still_running);
+
+    abort_on_test_timeout();
+  }
+
+  while ((msg = curl_multi_info_read(m, &msgs_left)))
+  {
+    if (msg->msg == CURLMSG_DONE && msg->easy_handle == curls)
+    {
+      res = msg->data.result;
+      break;
+    }
+  }
+  
+test_cleanup:
+  curl_multi_remove_handle(m, curls);
+  curl_easy_cleanup(curls);
+  curl_slist_free_all(resolve_list);
+  
+  return res;
+}
 
 int test(char *URL)
 {
-  CURLcode res;
-  CURL *curl;
+  CURLM* multi = NULL;
+  int res = 0;
+  char *address = libtest_arg2;
+  char *port = libtest_arg3;
+  char *path = URL;
+  char dns_entry[256];
+  int i;
+  int count = 2;
 
-  (void)URL; /* we don't use this */
-  fprintf(stderr, "lala %s lala\n", URL);
-
-  if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
-    fprintf(stderr, "curl_global_init() failed\n");
-    return TEST_ERR_MAJOR_BAD;
+  snprintf(dns_entry, sizeof(dns_entry), "testserver.example.com:%s:%s", port, address);
+  char target_url[256];
+  
+  start_test_timing();
+  
+  global_init(CURL_GLOBAL_ALL);
+  multi_init(multi);
+  
+  for (i = 1; i <= count; i++)
+  {
+    snprintf(target_url, sizeof(target_url), "http://testserver.example.com:%s%s%04d", port, path, i);
+    if ((res = do_one_request(multi, target_url, dns_entry)))
+      goto test_cleanup;
+    if (i < count)
+      sleep(2);
   }
-
-  if ((curl = curl_easy_init()) == NULL) {
-    fprintf(stderr, "curl_easy_init() failed\n");
-    curl_global_cleanup();
-    return TEST_ERR_MAJOR_BAD;
-  }
-
-  test_setopt(curl, CURLOPT_HEADER, 1L);
-
-  res = curl_easy_perform(curl);
 
 test_cleanup:
+  curl_multi_cleanup(multi);
 
-  curl_easy_cleanup(curl);
-  curl_global_cleanup();
-
-  return (int)res;
+  return (int) res;
 }
-

@@ -1,40 +1,56 @@
 <testcase>
+
 <info>
 <keywords>
-missing URL
+HTTP
+multi
+FAILURE
+resolve
 </keywords>
 </info>
-#
-# Server-side
-<reply name="1">
+
+<reply>
+<data1>
+HTTP/1.1 200 OK
+Date: Thu, 03 Feb 2014 17:04:00 GMT
+Server: test-server/fake swsclose
+Connection: close
+Content-Type: text/html
+Content-Length: 6
+
+hello
+</data1>
+<data2>
+HTTP/1.1 200 OK
+Date: Thu, 03 Feb 2014 17:04:02 GMT
+Server: test-server/fake swsclose
+Connection: close
+Content-Type: text/html
+Content-Length: 6
+
+hello
+</data2>
 </reply>
 
-# Client-side
 <client>
 <server>
-none
-</server>
-<features>
 http
-</features>
-# tool is what to use instead of 'curl'
+</server>
 <tool>
 lib1515
 </tool>
-
- <name>
-simple libcurl attempt operation without URL set
- </name>
- <command>
-http://%HOSTIP:%HTTPPORT/501
+<name>
+caching of manual libcurl DNS entries after DNS cache timeout
+</name>
+<command>
+/path/1515 %HOSTIP %HTTPPORT
 </command>
 </client>
 
-#
-# Verify data after the test has been "shot"
 <verify>
 <errorcode>
-3
+0
 </errorcode>
 </verify>
+
 </testcase>
